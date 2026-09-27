@@ -1,0 +1,49 @@
+name: Publish notebooks
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Check solutions and regenerate the exercise notebooks
+        # Runs the solution notebooks (every check() must pass), strips the
+        # solutions, and runs the exercise notebooks (no cell may error).
+        run: uv run mograder generate lecture1_fd lecture2_dg
+
+      - name: Exercise notebooks must match the committed ones
+        run: |
+          if ! git diff --exit-code -- 'release/*/*.py'; then
+            echo "::error::release/ is out of date. Run 'uv run mograder generate lecture1_fd lecture2_dg' and commit the result."
+            exit 1
+          fi
+
+      - name: Build site
+        run: uv run python scripts/build_site.py _site
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: gh-pages
+          force_orphan: true
